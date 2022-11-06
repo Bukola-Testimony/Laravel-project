@@ -4,6 +4,10 @@
     - var.yml
 
   tasks:
+
+    - name: update the apt package index
+      apt: update_cache=yes
+
     - import_tasks: php8.yml
       tags: [ php ]
       become: true
@@ -264,7 +268,7 @@
           Route::get('/', function () {
             return view('welcome');
           });
-      tags: [ uncomment ]
+      tags: [ route ]
       become: true  
       
       

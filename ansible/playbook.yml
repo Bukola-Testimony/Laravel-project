@@ -1,0 +1,277 @@
+---
+- hosts: all
+  vars_files:
+    - var.yml
+
+  tasks:
+    - import_tasks: php8.yml
+      tags: [ php ]
+      become: true
+
+    - name: Install apache2
+      apt:
+        name: apache2
+        state: present
+      tags: [ apache ]
+      become: true
+
+    - name: Install git
+      ansible.builtin.apt:
+        name: git
+      tags: [ git ]
+      become: true
+    
+    #MYSQL CONFIGURATION
+    - name: Installing Mysql  and dependencies
+      package:
+         name: "{{item}}"
+         state: present
+         update_cache: yes
+      loop:
+        - mysql-server
+        - mysql-client
+        - python3-mysqldb
+        - libmysqlclient-dev
+      tags: [ mysql ]
+      become: true
+       
+    - name: start and enable mysql service
+      service:
+         name: mysql
+         state: started
+         enabled: yes
+      tags: [ mysql ]
+      become: true
+
+    - name: Set the root password
+      mysql_user:
+        name: root
+        password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+      tags: [ mysql ]
+      become: true
+
+    - name: Remove all anonymous user accounts
+      mysql_user:
+        name: ''
+        host_all: yes
+        state: absent
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+      tags: [ mysql ]
+      become: true
+
+    - name: Remove the MySQL test database
+      mysql_db:
+        name: test
+        state: absent
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+      tags: [ mysql ]
+      become: true
+
+    - name: Creates database for laravel
+      mysql_db:
+        name: "{{ mysql_db }}"
+        state: present
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+      tags: [ mysql ]
+      become: true
+
+    - name: Create MySQL user for laravel
+      mysql_user:
+        name: "{{ mysql_user }}"
+        password: "{{ mysql_password }}"
+        priv: "{{ mysql_db }}.*:ALL"
+        state: present
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+      tags: [ mysql ]
+      become: true
+     
+    
+    # using the get_url module to download the installer.
+    - name: download composer installer
+      get_url:
+        url: https://getcomposer.org/installer
+        dest: /tmp/composer
+      tags: [ composer ]
+      become: true  
+
+    
+    # Then we execute a shell command to run the installer.
+    - name: install composer
+      shell: php /tmp/composer --install-dir=/usr/local/bin
+      tags: [ composer ]
+      become: true
+
+    
+    # rename the composer.phar program, and make it globally  executable.
+    - name: rename composer executable
+      shell: mv /usr/local/bin/composer.phar /usr/local/bin/composer
+      tags: [ composer ]
+      become: true
+
+
+    # Set executable permissions for composer
+    - name: set permissions for composer file
+      file:
+        path: /usr/local/bin/composer
+        mode: a+x
+        state: file 
+      tags: [ composer ]
+      become: true   
+
+
+      # Clone Git repository
+    - name: clone laravel repository
+      git: 
+        repo: https://github.com/f1amy/laravel-realworld-example-app.git
+        dest: /opt/{{ clone_name }}
+      tags: [ laravel ]
+      become: true
+
+    
+    # Move cloned laravel to apache document root
+    - name: move git folder
+      shell: mv /opt/{{ clone_name }} /var/www/html/
+      tags: [ laravel ]
+      become: true
+    
+
+    # set owner and group of cloned repository
+    - name: Change file ownership, group and permissions of laravel
+      file:
+        path: /var/www/html/{{ clone_name }}/
+        state: directory
+        recurse: yes
+        owner: ubuntu
+        group: ubuntu
+        mode: '0775'
+      tags: [ laravel ]
+      become: true
+
+     
+   #set permissions for Laravel storage folder
+    - name: set permissions for Laravel storage folder
+      file:
+        path: /var/www/html/{{ clone_name }}/storage/
+        state: directory
+        recurse: yes
+        mode: '0777'
+      tags: [ laravel ]
+      become: true
+      
+      
+    # install the composer artisan dependencies 
+    - name: Download and installs all libs and dependencies 
+      composer:
+        command: install
+        working_dir: /var/www/html/{{ clone_name }}/
+      tags: [ composer2 ]
+    
+
+    # configure Apache 
+    - import_tasks: apache.yml
+      tags: [ apache_conf ]
+      become: true
+
+    
+    
+    # create .env file
+    - name: create and edit .env file
+      copy:
+        dest: /var/www/html/{{ clone_name }}/.env
+        content: |
+          APP_NAME="Laravel"
+          APP_ENV=local
+          APP_KEY=
+          APP_DEBUG=true
+          APP_URL=http://localhost
+          APP_PORT=3000
+
+          LOG_CHANNEL=stack
+          LOG_DEPRECATIONS_CHANNEL=null
+          LOG_LEVEL=debug
+
+          DB_CONNECTION=mysql
+          DB_HOST=localhost
+          DB_PORT=3306
+          DB_DATABASE={{ mysql_db }}
+          DB_USERNAME={{ mysql_user }}
+          DB_PASSWORD={{ mysql_password }}
+
+          BROADCAST_DRIVER=log
+          CACHE_DRIVER=file
+          FILESYSTEM_DISK=local
+          QUEUE_CONNECTION=sync
+          SESSION_DRIVER=file
+          SESSION_LIFETIME=120
+
+          MEMCACHED_HOST=127.0.0.1
+
+          REDIS_HOST=127.0.0.1
+          REDIS_PASSWORD=null
+          REDIS_PORT=6379
+
+          MAIL_MAILER=smtp
+          MAIL_HOST=mailhog
+          MAIL_PORT=1025
+          MAIL_USERNAME=null
+          MAIL_PASSWORD=null
+          MAIL_ENCRYPTION=null
+          MAIL_FROM_ADDRESS="hello@example.com"
+          MAIL_FROM_NAME="${APP_NAME}"
+
+          AWS_ACCESS_KEY_ID=
+          AWS_SECRET_ACCESS_KEY=
+          AWS_DEFAULT_REGION=us-east-1
+          AWS_BUCKET=
+          AWS_USE_PATH_STYLE_ENDPOINT=false
+
+          PUSHER_APP_ID=
+          PUSHER_APP_KEY=
+          PUSHER_APP_SECRET=
+          PUSHER_APP_CLUSTER=mt1
+
+          MIX_PUSHER_APP_KEY="${PUSHER_APP_KEY}"
+          MIX_PUSHER_APP_CLUSTER="${PUSHER_APP_CLUSTER}"
+
+          L5_SWAGGER_GENERATE_ALWAYS=true
+          SAIL_XDEBUG_MODE=develop,debug
+          SAIL_SKIP_CHECKS=true
+        owner: ubuntu
+        group: www-data
+        mode: '0775'
+      tags: [ env ]
+      become: true
+
+
+    # to generate our Laravel keys via the shell:
+    - name: generate laravel keys
+      shell: |
+        cd /var/www/html/{{ clone_name }}
+        php artisan key:generate
+      tags: [ keys ]
+      become: true  
+    
+    
+    - name: uncomment route.php file
+      blockinfile:
+        path: /var/www/html/{{ clone_name }}/routes/web.php
+        block: |
+          Route::get('/', function () {
+            return view('welcome');
+          });
+      tags: [ uncomment ]
+      become: true  
+      
+      
+    - name: migrate data
+      shell: |
+        cd /var/www/html/{{ clone_name }}
+        php artisan migrate
+      tags: [ migrate ]
+      become: true   
+

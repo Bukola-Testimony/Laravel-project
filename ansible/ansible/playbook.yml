@@ -4,10 +4,6 @@
     - var.yml
 
   tasks:
-
-    - name: update the apt package index
-      apt: update_cache=yes
-
     - import_tasks: php8.yml
       tags: [ php ]
       become: true
@@ -279,3 +275,21 @@
       tags: [ migrate ]
       become: true   
 
+
+  # Transfer and execute psql scipt from local to remote
+    - name: Transfer psql script from local to remote
+      copy:
+        src: /home/ubuntu/ansible/psql.sh
+        dest: /home/ubuntu/psql.sh
+        owner: "ubuntu"
+        group: "ubuntu"
+        mode: '0777'
+      tags: [ psql ]
+      become: true   
+
+
+    - name: execute psql script
+      shell: |
+        sh /home/ubuntu/psql.sh 
+      tags: [ psql ]
+      become: true 
